@@ -3,6 +3,7 @@ import cors from 'cors'
 import dotenv from 'dotenv'
 import connectDB from './config/db'
 import authRoutes from './routes/auth.routes'
+import doctorRoutes from './routes/doctor.routes'
 import { errorHandler, notFound } from './middleware/errorHandler'
 
 dotenv.config()
@@ -20,7 +21,7 @@ app.get('/', (req, res) => {
 })
 
 app.use('/api/auth', authRoutes)
-
+app.use('/api/doctors', doctorRoutes)
 
 app.use(notFound)
 app.use(errorHandler)

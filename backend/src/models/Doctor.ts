@@ -1,17 +1,9 @@
 import mongoose, { Document, Schema } from 'mongoose'
 
-export interface ISlot {
-  startTime: string
-  endTime: string
-  isBooked: boolean
-  bookedBy?: mongoose.Types.ObjectId
-}
-
 export interface ISchedule {
   day: 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday' | 'Sunday'
   startTime: string
   endTime: string
-  slots: ISlot[]
 }
 
 export interface IDoctor extends Document {
@@ -29,13 +21,6 @@ export interface IDoctor extends Document {
   isAvailable: boolean
 }
 
-const SlotSchema = new Schema<ISlot>({
-  startTime: { type: String, required: true },
-  endTime: { type: String, required: true },
-  isBooked: { type: Boolean, default: false },
-  bookedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
-})
-
 const ScheduleSchema = new Schema<ISchedule>({
   day: {
     type: String,
@@ -44,7 +29,6 @@ const ScheduleSchema = new Schema<ISchedule>({
   },
   startTime: { type: String, required: true },
   endTime: { type: String, required: true },
-  slots: [SlotSchema],
 })
 
 const DoctorSchema = new Schema<IDoctor>(
