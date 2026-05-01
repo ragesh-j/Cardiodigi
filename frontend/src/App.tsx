@@ -1,17 +1,40 @@
-function App() {
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import ProtectedLayout from './layouts/ProtectedLayout'
+import AdminLayout from './layouts/AdminLayout'
+import Login from './pages/auth/Login'
+import Register from './pages/auth/Register'
+import DoctorList from './pages/patient/DoctorList'
+import DoctorProfile from './pages/patient/DoctorProfile'
+import BookAppointment from './pages/patient/BookAppointment'
+import MyAppointments from './pages/patient/MyAppointments'
+import Dashboard from './pages/admin/Dashboard'
+import DoctorManagement from './pages/admin/DoctorManagement'
+import AppointmentManagement from './pages/admin/AppointmentManagement'
+
+const App = () => {
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-      <div className="bg-white rounded-2xl shadow-md p-10 flex flex-col items-center gap-4">
-        <h1 className="text-3xl font-semibold text-gray-800">Tailwind is working ✓</h1>
-        <p className="text-gray-500 text-sm">Ready to build the Doctor Booking System</p>
-        <div className="flex gap-3">
-          <span className="bg-purple-100 text-purple-700 text-xs font-medium px-3 py-1 rounded-full">React 19</span>
-          <span className="bg-blue-100 text-blue-700 text-xs font-medium px-3 py-1 rounded-full">TypeScript</span>
-          <span className="bg-teal-100 text-teal-700 text-xs font-medium px-3 py-1 rounded-full">Tailwind v3</span>
-        </div>
-      </div>
-    </div>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
+
+        <Route element={<ProtectedLayout />}>
+          <Route path="/" element={<DoctorList />} />
+          <Route path="/doctors/:id" element={<DoctorProfile />} />
+          <Route path="/doctors/:id/book" element={<BookAppointment />} />
+          <Route path="/appointments" element={<MyAppointments />} />
+        </Route>
+
+        <Route element={<AdminLayout />}>
+          <Route path="/admin" element={<Dashboard />} />
+          <Route path="/admin/doctors" element={<DoctorManagement />} />
+          <Route path="/admin/appointments" element={<AppointmentManagement />} />
+        </Route>
+
+        <Route path="*" element={<Navigate to="/" />} />
+      </Routes>
+    </BrowserRouter>
   )
 }
 
-export default App 
+export default App
