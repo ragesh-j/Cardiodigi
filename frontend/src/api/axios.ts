@@ -1,10 +1,9 @@
 import axios from 'axios'
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL,
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3000/api',
 })
 
-// attach token to every request
 api.interceptors.request.use((config) => {
   const user = localStorage.getItem('user')
   if (user) {
@@ -14,13 +13,17 @@ api.interceptors.request.use((config) => {
   return config
 })
 
-// handle 401 globally
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    // only redirect on 401 if user is logged in
+    // don't redirect on login/register pages
     if (error.response?.status === 401) {
-      localStorage.removeItem('user')
-      window.location.href = '/login'
+      const user = localStorage.getItem('user')
+      if (user) {
+        localStorage.removeItem('user')
+        window.location.href = '/login'
+      }
     }
     return Promise.reject(error)
   }

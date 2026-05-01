@@ -1,3 +1,39 @@
 @tailwind base;
 @tailwind components;
-@tailwind utilities;  
+@tailwind utilities;
+
+@layer base {
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background-color: #f8fafc;
+    color: #0f172a;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-teal-600 hover:bg-teal-700 disabled:bg-teal-300 text-white font-medium py-2.5 px-6 rounded-xl text-sm transition-all duration-200;
+  }
+  .btn-secondary {
+    @apply bg-white hover:bg-gray-50 text-gray-700 font-medium py-2.5 px-6 rounded-xl text-sm border border-gray-200 transition-all duration-200;
+  }
+  .btn-danger {
+    @apply bg-red-50 hover:bg-red-100 text-red-600 font-medium py-2.5 px-6 rounded-xl text-sm transition-all duration-200;
+  }
+  .input {
+    @apply w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition bg-white;
+  }
+  .card {
+    @apply bg-white rounded-2xl border border-gray-100 shadow-sm;
+  }
+  .badge-confirmed {
+    @apply bg-teal-50 text-teal-700 text-xs font-medium px-2.5 py-1 rounded-full;
+  }
+  .badge-cancelled {
+    @apply bg-red-50 text-red-600 text-xs font-medium px-2.5 py-1 rounded-full;
+  }
+  .badge-completed {
+    @apply bg-blue-50 text-blue-700 text-xs font-medium px-2.5 py-1 rounded-full;
+  }
+}
