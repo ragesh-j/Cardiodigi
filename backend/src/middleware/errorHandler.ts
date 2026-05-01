@@ -24,6 +24,10 @@ export const errorHandler = (
 }
 
 export const notFound = (req: Request, res: Response, next: NextFunction): void => {
+  if (req.path.startsWith('/socket.io')) {
+    next()
+    return
+  }
   const error: AppError = new Error(`Route ${req.originalUrl} not found`)
   error.statusCode = 404
   next(error)
