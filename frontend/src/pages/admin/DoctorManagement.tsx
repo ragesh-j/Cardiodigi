@@ -8,7 +8,7 @@ import {
   updateScheduleApi,
 } from '../../api/doctor.api'
 import { validateDoctor } from '../../utils/validations'
-import Modal from '../../components/DoctorModal'
+import Modal from '../../components/Modal'
 import Toast from '../../components/Toast'
 import useToast from '../../hooks/useToast'
 import type { Doctor } from '../../types'

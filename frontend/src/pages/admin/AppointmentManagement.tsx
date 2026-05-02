@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getAllAppointmentsApi, updateAppointmentStatusApi } from '../../api/appointment.api'
-import Modal from '../../components/DoctorModal'
+import Modal from '../../components/Modal'
 import Toast from '../../components/Toast'
 import useToast from '../../hooks/useToast'
 import type { Appointment } from '../../types'
