@@ -65,3 +65,62 @@ export const validateLogin = (form: {
 
   return errors
 }
+
+export const validateDoctor = (form: {
+  name: string
+  email: string
+  specialization: string
+  qualification: string
+  experience: string
+  phone: string
+  consultationFee: string
+  slotDuration: string
+}) => {
+  const errors: Record<string, string> = {}
+
+  if (!form.name.trim()) {
+    errors.name = 'Name is required'
+  } else if (form.name.trim().length < 2) {
+    errors.name = 'Name must be at least 2 characters'
+  }
+
+  if (!form.email.trim()) {
+    errors.email = 'Email is required'
+  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
+    errors.email = 'Please enter a valid email'
+  }
+
+  if (!form.specialization) {
+    errors.specialization = 'Specialization is required'
+  }
+
+  if (!form.qualification.trim()) {
+    errors.qualification = 'Qualification is required'
+  }
+
+  if (!form.experience) {
+    errors.experience = 'Experience is required'
+  } else if (Number(form.experience) < 0) {
+    errors.experience = 'Experience cannot be negative'
+  } else if (Number(form.experience) > 60) {
+    errors.experience = 'Please enter a valid experience'
+  }
+
+  if (!form.phone.trim()) {
+    errors.phone = 'Phone is required'
+  } else if (!/^[6-9]\d{9}$/.test(form.phone)) {
+    errors.phone = 'Please enter a valid Indian mobile number'
+  }
+
+  if (!form.consultationFee) {
+    errors.consultationFee = 'Consultation fee is required'
+  } else if (Number(form.consultationFee) < 0) {
+    errors.consultationFee = 'Fee cannot be negative'
+  }
+
+  if (!form.slotDuration) {
+    errors.slotDuration = 'Slot duration is required'
+  }
+
+  return errors
+}
