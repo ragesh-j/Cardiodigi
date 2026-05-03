@@ -15,7 +15,7 @@ export const bookAppointment = async (patientId: string, data: BookAppointmentIn
   try {
     const doctor = await Doctor.findById(doctorId).session(session)
     if (!doctor) throw createError('Doctor not found', 404)
-
+    const now = new Date()
     // atomic slot booking
     const slot = await Slot.findOneAndUpdate(
       {
@@ -23,10 +23,14 @@ export const bookAppointment = async (patientId: string, data: BookAppointmentIn
         doctor: doctorId,
         date,
         isBooked: false,
+        lockedBy: new mongoose.Types.ObjectId(patientId),
+        lockedUntil: { $gt: now },
       },
       {
         isBooked: true,
         bookedBy: patientId,
+        lockedBy: null,
+        lockedUntil: null,
       },
       { new: true, session }
     )
@@ -60,6 +64,7 @@ export const bookAppointment = async (patientId: string, data: BookAppointmentIn
       slotId,
       startTime: slot.startTime,
       endTime: slot.endTime,
+      userId: patientId
     })
 
     // aggregation for response

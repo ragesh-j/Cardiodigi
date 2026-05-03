@@ -7,6 +7,8 @@ import {
   removeDoctor,
   setSchedule,
   getAvailableSlots,
+  lockSlotRoute,
+  unlockSlotRoute,
 } from '../contollers/doctor.controller'
 import { protect, adminOnly } from '../middleware/authMiddleware'
 import { validate } from '../middleware/validate'
@@ -18,7 +20,8 @@ const router = Router()
 router.get('/', getDoctors)
 router.get('/:id/slots', getAvailableSlots)
 router.get('/:id', getDoctor)
-
+router.post('/:id/slots/:slotId/lock', protect, lockSlotRoute)
+router.delete('/:id/slots/:slotId/lock', protect, unlockSlotRoute)
 // admin only
 router.post('/', protect, adminOnly, validate(createDoctorSchema), addDoctor)
 router.put('/:id', protect, adminOnly, validate(updateDoctorSchema), editDoctor)

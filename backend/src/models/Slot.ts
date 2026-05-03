@@ -8,6 +8,8 @@ export interface ISlot extends Document {
   endTime: string
   isBooked: boolean
   bookedBy?: mongoose.Types.ObjectId
+  lockedBy?: mongoose.Types.ObjectId
+  lockedUntil?: Date
 }
 
 const SlotSchema = new Schema<ISlot>(
@@ -19,6 +21,8 @@ const SlotSchema = new Schema<ISlot>(
     endTime: { type: String, required: true },
     isBooked: { type: Boolean, default: false },
     bookedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    lockedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    lockedUntil: { type: Date, default: null },
   },
   { timestamps: true }
 )
