@@ -37,6 +37,8 @@ export interface Slot {
   startTime: string
   endTime: string
   isBooked: boolean
+   isLocked?: boolean
+  isLockedByMe?: boolean
 }
 
 export interface Appointment {

@@ -1,37 +1,181 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getDoctorApi, getSlotsApi } from '../../api/doctor.api'
+import { getDoctorApi, getSlotsApi, lockSlotApi, unlockSlotApi } from '../../api/doctor.api'
 import { bookAppointmentApi } from '../../api/appointment.api'
 import useSocket from '../../hooks/useSocket'
+import Toast from '../../components/Toast'
+import useToast from '../../hooks/useToast'
 import type { Slot } from '../../types'
+import { useAuth } from '../../context/AuthContext'
 
+// ─── Lock countdown hook ──────────────────────────────────────────────────────
+const LOCK_DURATION_MS = 2 * 60 * 1000 // 2 minutes (matches backend)
+
+const useLockCountdown = (lockedAt: number | null) => {
+  const [remaining, setRemaining] = useState<number>(0)
+
+  useEffect(() => {
+    if (!lockedAt) {
+      setRemaining(0)
+      return
+    }
+
+    const tick = () => {
+      const elapsed = Date.now() - lockedAt
+      const left = Math.max(0, LOCK_DURATION_MS - elapsed)
+      setRemaining(left)
+    }
+
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [lockedAt])
+
+  const mm = String(Math.floor(remaining / 60000)).padStart(2, '0')
+  const ss = String(Math.floor((remaining % 60000) / 1000)).padStart(2, '0')
+  return { remaining, label: `${mm}:${ss}` }
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
 const BookAppointment = () => {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-      if (!id) {
-        navigate('/')
-        return null
-    }
+
+  if (!id) { navigate('/'); return null }
+
   const queryClient = useQueryClient()
+  const { toast, showToast, hideToast } = useToast()
+  const { user } = useAuth()
 
   const [selectedDate, setSelectedDate] = useState('')
   const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null)
   const [notes, setNotes] = useState('')
+  const [lockLockedAt, setLockLockedAt] = useState<number | null>(null)
+
+  const lockedSlotRef = useRef<{ slotId: string; date: string } | null>(null)
+  const expiryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const today = new Date().toISOString().split('T')[0]
+  const { remaining: lockRemaining, label: lockLabel } = useLockCountdown(lockLockedAt)
 
-  // socket connection
   const socket = useSocket(id)
 
-  // real time slot updates
+  // ── Expiry timer ──────────────────────────────────────────────────────────
+  const clearExpiryTimer = () => {
+    if (expiryTimerRef.current) {
+      clearTimeout(expiryTimerRef.current)
+      expiryTimerRef.current = null
+    }
+  }
+
+  const startExpiryTimer = useCallback((slotDate: string, slotId: string) => {
+    clearExpiryTimer()
+    expiryTimerRef.current = setTimeout(() => {
+      // tell the server to release the lock so other users see it as available
+      unlockSlotApi(id!, slotId).catch(() => {})
+      setSelectedSlot(null)
+      lockedSlotRef.current = null
+      setLockLockedAt(null)
+      queryClient.invalidateQueries({ queryKey: ['slots', id, slotDate] })
+      showToast('Your slot reservation expired. Please select again.', 'error')
+    }, LOCK_DURATION_MS)
+  }, [id, queryClient, showToast])
+
+  // ── API mutations ──────────────────────────────────────────────────────────
+  const { mutate: lock } = useMutation({
+    mutationFn: ({ slotId, date }: { slotId: string; date: string }) =>
+      lockSlotApi(id!, slotId, date),
+    // backend auto-unlocks previous slot atomically — no need to call unlock first
+    onSuccess: (_, vars) => {
+      lockedSlotRef.current = vars
+      setLockLockedAt(Date.now())
+      startExpiryTimer(vars.date, vars.slotId)
+      // no invalidateQueries here — socket notifies other users, our local state is already set
+    },
+    onError: (err: any) => {
+      // rollback: slot couldn't be locked, clear selection
+      setSelectedSlot(null)
+      lockedSlotRef.current = null
+      queryClient.invalidateQueries({ queryKey: ['slots', id, selectedDate] })
+      showToast(err.response?.data?.message || 'Slot could not be locked. It may have been taken.', 'error')
+    },
+  })
+
+  const { mutate: unlock } = useMutation({
+    // only called on: deselect, date change, unmount — NOT on slot switch
+    mutationFn: ({ slotId }: { slotId: string }) => unlockSlotApi(id!, slotId),
+    onSettled: () => {
+      clearExpiryTimer()
+      lockedSlotRef.current = null
+      setLockLockedAt(null)
+      // no invalidateQueries — socket notifies other users
+    },
+  })
+
+  const { mutate: bookSlot, isPending } = useMutation({
+    mutationFn: bookAppointmentApi,
+    onSuccess: () => {
+      clearExpiryTimer()
+      lockedSlotRef.current = null
+      setLockLockedAt(null)
+      queryClient.invalidateQueries({ queryKey: ['slots', id, selectedDate] })
+      queryClient.invalidateQueries({ queryKey: ['myAppointments'] })
+      showToast('Appointment booked successfully!')
+      setTimeout(() => navigate('/appointments'), 1500)
+    },
+    onError: (err: any) => {
+      showToast(err.response?.data?.message || 'Booking failed. Please try again.', 'error')
+    },
+  })
+
+  // ── Slot selection ────────────────────────────────────────────────────────
+  const handleSlotSelect = useCallback((slot: Slot) => {
+    if (selectedSlot?._id === slot._id) {
+      // deselect → explicit unlock
+      unlock({ slotId: slot._id })
+      setSelectedSlot(null)
+      return
+    }
+
+    // switching slots: just call lock — backend handles unlocking the previous one
+    setSelectedSlot(slot)
+    lock({ slotId: slot._id, date: selectedDate })
+  }, [selectedSlot, selectedDate, lock, unlock])
+
+  // ── Unlock on unmount ─────────────────────────────────────────────────────
+  useEffect(() => {
+    return () => {
+      clearExpiryTimer()
+      if (lockedSlotRef.current) {
+        unlockSlotApi(id!, lockedSlotRef.current.slotId).catch(() => {})
+      }
+    }
+  }, [id])
+
+  // ── Date change ───────────────────────────────────────────────────────────
+  const handleDateChange = (date: string) => {
+    if (lockedSlotRef.current) {
+      // explicit unlock when abandoning a date
+      unlock({ slotId: lockedSlotRef.current.slotId })
+    }
+    setSelectedSlot(null)
+    setSelectedDate(date)
+  }
+
+  // ── Socket events — only for OTHER users' actions ─────────────────────────
   useEffect(() => {
     if (!socket) return
 
-    socket.on('slot:booked', ({ slotId }: { slotId: string }) => {
+    socket.on('slot:booked', ({ slotId, userId }: { slotId: string; userId: string }) => {
       queryClient.invalidateQueries({ queryKey: ['slots', id, selectedDate] })
+      if (userId === user?._id) return
       if (selectedSlot?._id === slotId) {
+        clearExpiryTimer()
         setSelectedSlot(null)
+        lockedSlotRef.current = null
+        setLockLockedAt(null)
+        showToast('Your selected slot was just booked by someone else!', 'error')
       }
     })
 
@@ -39,12 +183,23 @@ const BookAppointment = () => {
       queryClient.invalidateQueries({ queryKey: ['slots', id, selectedDate] })
     })
 
+    socket.on('slot:locked', () => {
+      queryClient.invalidateQueries({ queryKey: ['slots', id, selectedDate] })
+    })
+
+    socket.on('slot:unlocked', () => {
+      queryClient.invalidateQueries({ queryKey: ['slots', id, selectedDate] })
+    })
+
     return () => {
       socket.off('slot:booked')
       socket.off('slot:cancelled')
+      socket.off('slot:locked')
+      socket.off('slot:unlocked')
     }
-  }, [socket, id, selectedDate, selectedSlot, queryClient])
+  }, [socket, id, selectedDate, selectedSlot, queryClient, user])
 
+  // ── Queries ───────────────────────────────────────────────────────────────
   const { data: doctor, isLoading: doctorLoading } = useQuery({
     queryKey: ['doctor', id],
     queryFn: () => getDoctorApi(id!),
@@ -56,31 +211,26 @@ const BookAppointment = () => {
     enabled: !!selectedDate && !!id,
   })
 
-  const { mutate: bookSlot, isPending, error: bookError } = useMutation({
-    mutationFn: bookAppointmentApi,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['slots', id, selectedDate] })
-      queryClient.invalidateQueries({ queryKey: ['myAppointments'] })
-      navigate('/appointments')
-    },
-  })
-
   const handleBook = () => {
     if (!selectedSlot || !selectedDate || !id) return
-    bookSlot({
-      doctorId: id,
-      slotId: selectedSlot._id,
-      date: selectedDate,
-      notes,
-    })
+    bookSlot({ doctorId: id, slotId: selectedSlot._id, date: selectedDate, notes })
   }
 
-  const availableDays = doctor?.schedule.map(s => s.day) || []
-
+  const availableDays = doctor?.schedule.map((s: any) => s.day) || []
   const isDateAvailable = (dateStr: string) => {
     const day = new Date(dateStr).toLocaleDateString('en-US', { weekday: 'long' })
     return availableDays.includes(day)
   }
+
+  const getSlotStyle = (slot: Slot) => {
+    const isSelected = selectedSlot?._id === slot._id
+    if (isSelected) return 'bg-teal-600 text-white font-medium ring-2 ring-teal-400 ring-offset-1'
+    if (slot.isLockedByMe) return 'bg-teal-100 text-teal-700 border border-teal-300'
+    if (slot.isLocked) return 'bg-amber-50 text-amber-400 cursor-not-allowed border border-amber-200'
+    return 'bg-gray-50 text-gray-700 hover:bg-teal-50 hover:text-teal-700'
+  }
+
+  const isSlotDisabled = (slot: Slot) => slot.isLocked && !slot.isLockedByMe
 
   if (doctorLoading) return (
     <div className="max-w-2xl mx-auto animate-pulse space-y-4">
@@ -91,6 +241,8 @@ const BookAppointment = () => {
 
   return (
     <div className="max-w-2xl mx-auto space-y-5">
+
+      {toast && <Toast message={toast.message} type={toast.type} onClose={hideToast} />}
 
       <button
         onClick={() => navigate(`/doctors/${id}`)}
@@ -103,9 +255,7 @@ const BookAppointment = () => {
         <div className="card p-5">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 bg-teal-100 rounded-xl flex items-center justify-center">
-              <span className="text-teal-700 font-semibold">
-                {doctor.name.charAt(0)}
-              </span>
+              <span className="text-teal-700 font-semibold">{doctor.name.charAt(0)}</span>
             </div>
             <div>
               <h2 className="font-semibold text-slate-900">{doctor.name}</h2>
@@ -123,7 +273,7 @@ const BookAppointment = () => {
         <h3 className="font-medium text-slate-900 mb-4">Select Date</h3>
         {availableDays.length > 0 && (
           <div className="flex gap-2 flex-wrap mb-4">
-            {availableDays.map(day => (
+            {availableDays.map((day: string) => (
               <span key={day} className="text-xs bg-teal-50 text-teal-700 px-2.5 py-1 rounded-full">
                 {day}
               </span>
@@ -134,10 +284,7 @@ const BookAppointment = () => {
           type="date"
           min={today}
           value={selectedDate}
-          onChange={e => {
-            setSelectedDate(e.target.value)
-            setSelectedSlot(null)
-          }}
+          onChange={e => handleDateChange(e.target.value)}
           className="input"
         />
         {selectedDate && !isDateAvailable(selectedDate) && (
@@ -152,6 +299,33 @@ const BookAppointment = () => {
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-medium text-slate-900">Available Slots</h3>
             <span className="text-xs text-teal-500">● Live updates</span>
+          </div>
+
+          {selectedSlot && lockRemaining > 0 && (
+            <div className="mb-4 flex items-center justify-between bg-teal-50 border border-teal-200 rounded-xl px-4 py-2.5">
+              <div className="flex items-center gap-2 text-sm text-teal-700">
+                <span className="text-base">🔒</span>
+                <span>Slot reserved for you</span>
+              </div>
+              <div className={`font-mono text-sm font-semibold tabular-nums ${lockRemaining < 30000 ? 'text-red-500' : 'text-teal-700'}`}>
+                {lockLabel}
+              </div>
+            </div>
+          )}
+
+          <div className="flex gap-4 mb-4 flex-wrap">
+            <span className="flex items-center gap-1.5 text-xs text-gray-500">
+              <span className="w-3 h-3 rounded bg-gray-100 border border-gray-200 inline-block" />
+              Available
+            </span>
+            <span className="flex items-center gap-1.5 text-xs text-gray-500">
+              <span className="w-3 h-3 rounded bg-teal-600 inline-block" />
+              Selected (yours)
+            </span>
+            <span className="flex items-center gap-1.5 text-xs text-gray-500">
+              <span className="w-3 h-3 rounded bg-amber-100 border border-amber-200 inline-block" />
+              Locked by others
+            </span>
           </div>
 
           {slotsLoading && (
@@ -170,17 +344,18 @@ const BookAppointment = () => {
 
           {!slotsLoading && slots && slots.length > 0 && (
             <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-              {slots.map(slot => (
+              {slots.map((slot: Slot) => (
                 <button
                   key={slot._id}
-                  onClick={() => setSelectedSlot(slot)}
-                  className={`py-2.5 px-3 rounded-xl text-sm transition-all ${
-                    selectedSlot?._id === slot._id
-                      ? 'bg-teal-600 text-white font-medium'
-                      : 'bg-gray-50 text-gray-700 hover:bg-teal-50 hover:text-teal-700'
-                  }`}
+                  onClick={() => !isSlotDisabled(slot) && handleSlotSelect(slot)}
+                  disabled={isSlotDisabled(slot)}
+                  title={isSlotDisabled(slot) ? 'This slot is temporarily reserved by another user' : undefined}
+                  className={`py-2.5 px-3 rounded-xl text-sm transition-all ${getSlotStyle(slot)} disabled:opacity-60 disabled:cursor-not-allowed`}
                 >
                   {slot.startTime}
+                  {slot.isLocked && !slot.isLockedByMe && (
+                    <span className="block text-[10px] leading-none mt-0.5 opacity-70">locked</span>
+                  )}
                 </button>
               ))}
             </div>
@@ -213,17 +388,14 @@ const BookAppointment = () => {
               <span className="text-teal-700">Date</span>
               <span className="font-medium text-teal-900">
                 {new Date(selectedDate).toLocaleDateString('en-IN', {
-                  weekday: 'long',
-                  year: 'numeric',
-                  month: 'long',
-                  day: 'numeric',
+                  weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
                 })}
               </span>
             </div>
             <div className="flex justify-between">
               <span className="text-teal-700">Time</span>
               <span className="font-medium text-teal-900">
-                {selectedSlot.startTime} - {selectedSlot.endTime}
+                {selectedSlot.startTime} – {selectedSlot.endTime}
               </span>
             </div>
             <div className="flex justify-between border-t border-teal-200 pt-2 mt-2">
@@ -231,18 +403,17 @@ const BookAppointment = () => {
               <span className="font-semibold text-teal-900">₹{doctor?.consultationFee}</span>
             </div>
           </div>
-        </div>
-      )}
-
-      {bookError && (
-        <div className="bg-red-50 border border-red-100 text-red-600 text-sm px-4 py-3 rounded-xl">
-          {(bookError as any)?.response?.data?.message || 'Booking failed. Please try again.'}
+          {lockRemaining > 0 && lockRemaining < 30000 && (
+            <p className="mt-3 text-xs text-red-500 font-medium">
+              ⚠️ Your reservation expires in {lockLabel}. Please confirm now.
+            </p>
+          )}
         </div>
       )}
 
       <button
         onClick={handleBook}
-        disabled={!selectedSlot || !selectedDate || isPending}
+        disabled={!selectedSlot || !selectedDate || isPending || lockRemaining === 0}
         className="btn-primary w-full py-3 text-base disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {isPending ? 'Booking...' : 'Confirm Booking'}

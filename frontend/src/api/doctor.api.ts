@@ -40,3 +40,11 @@ export const updateScheduleApi = async (id: string, data: {
   const res = await api.put(`/doctors/${id}/schedule`, data)
   return res.data.data
 }
+export const lockSlotApi = async (doctorId: string, slotId: string, date: string) => {
+  const res = await api.post(`/doctors/${doctorId}/slots/${slotId}/lock`, { date })
+  return res.data.data
+}
+
+export const unlockSlotApi = async (doctorId: string, slotId: string) => {
+  await api.delete(`/doctors/${doctorId}/slots/${slotId}/lock`)
+}
